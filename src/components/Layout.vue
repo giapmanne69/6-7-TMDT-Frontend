@@ -25,6 +25,9 @@
           <RouterLink to="/vip" class="flex items-center gap-1 text-sm font-semibold text-amber-600 hover:text-amber-700">
             <Crown class="h-4 w-4" /> VIP
           </RouterLink>
+          <RouterLink v-if="auth.isLoggedIn" to="/subscriptions" class="flex items-center gap-1 text-sm font-semibold text-gray-700 hover:text-blue-600">
+            <Bell class="h-4 w-4" /> Theo dõi
+          </RouterLink>
         </nav>
 
         <!-- Search & Actions -->
@@ -115,7 +118,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Search, Crown, Menu, User, LogOut } from 'lucide-vue-next'
+import { Search, Crown, Menu, User, LogOut, Bell } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()

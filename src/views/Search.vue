@@ -36,6 +36,25 @@
           <option value="B">Trần Thị B</option>
         </select>
       </div>
+
+      <div v-if="selectedCategory" class="mt-6 flex flex-col gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 class="font-bold text-gray-900">Nhận email về chủ đề {{ selectedCategory.name }}</h3>
+          <p class="text-sm text-gray-600">Theo dõi chủ đề này để nhận thông báo khi có bài báo mới.</p>
+        </div>
+        <button
+          @click="toggleCategorySubscription"
+          :disabled="categoryFollowLoading"
+          class="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+        >
+          <Loader2 v-if="categoryFollowLoading" class="h-4 w-4 animate-spin" />
+          <BellRing v-else-if="isCategoryFollowing" class="h-4 w-4" />
+          <BellPlus v-else class="h-4 w-4" />
+          {{ isCategoryFollowing ? 'Đã theo dõi' : 'Theo dõi qua email' }}
+        </button>
+      </div>
+      <p v-if="followMessage" class="mt-3 rounded-lg bg-green-50 px-4 py-2 text-sm font-medium text-green-700">{{ followMessage }}</p>
+      <p v-if="followError" class="mt-3 rounded-lg bg-red-50 px-4 py-2 text-sm font-medium text-red-700">{{ followError }}</p>
     </div>
 
     <!-- Results -->
@@ -63,22 +82,44 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Search as SearchIcon, Filter, SearchX } from 'lucide-vue-next'
+import { Search as SearchIcon, Filter, SearchX, BellPlus, BellRing, Loader2 } from 'lucide-vue-next'
 import { articles, categories } from '@/app/lib/mock-data'
 import ArticleCard from '@/components/ArticleCard.vue'
+import { useAuthStore } from '@/stores/auth'
+import {
+  getMySubscriptions,
+  subscribeToTarget,
+  unsubscribeFromTarget,
+  type SubscriptionResponse,
+} from '@/api/usecaseFeatures'
+import { canUseBackendId, getBackendCategoryId } from '@/utils/backendIds'
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 
 const searchInput = ref((route.query.q as string) ?? '')
 const categoryFilter = ref((route.query.category as string) ?? '')
 const query = ref((route.query.q as string) ?? '')
+const subscriptions = ref<SubscriptionResponse[]>([])
+const categoryFollowLoading = ref(false)
+const followMessage = ref('')
+const followError = ref('')
 
 watch(() => route.query, (q) => {
   searchInput.value = (q.q as string) ?? ''
   categoryFilter.value = (q.category as string) ?? ''
   query.value = (q.q as string) ?? ''
-})
+  followMessage.value = ''
+  followError.value = ''
+  loadSubscriptions()
+}, { immediate: true })
+
+const selectedCategory = computed(() => categories.find(cat => cat.id === categoryFilter.value))
+const backendCategoryId = computed(() => getBackendCategoryId(categoryFilter.value))
+const isCategoryFollowing = computed(() =>
+  subscriptions.value.some(sub => sub.targetType === 'CATEGORY' && sub.targetId === backendCategoryId.value),
+)
 
 const filteredArticles = computed(() => {
   return articles.filter(article => {
@@ -102,5 +143,61 @@ function applyFilters() {
   if (query.value) params.q = query.value
   if (categoryFilter.value) params.category = categoryFilter.value
   router.push({ path: '/search', query: params })
+}
+
+async function loadSubscriptions() {
+  if (!auth.isLoggedIn || !auth.isVip) {
+    subscriptions.value = []
+    return
+  }
+  try {
+    subscriptions.value = await getMySubscriptions()
+  } catch {
+    subscriptions.value = []
+  }
+}
+
+function requireVipFeature() {
+  followMessage.value = ''
+  followError.value = ''
+  if (!auth.isLoggedIn) {
+    router.push({ path: '/login', query: { redirect: route.fullPath } })
+    return false
+  }
+  if (!auth.isVip) {
+    router.push('/vip')
+    return false
+  }
+  return true
+}
+
+async function toggleCategorySubscription() {
+  if (!selectedCategory.value || !requireVipFeature()) return
+  if (!canUseBackendId(backendCategoryId.value)) {
+    followError.value = 'Chưa xác định được ID chủ đề trong backend.'
+    return
+  }
+
+  categoryFollowLoading.value = true
+  try {
+    if (isCategoryFollowing.value) {
+      await unsubscribeFromTarget('CATEGORY', backendCategoryId.value)
+      subscriptions.value = subscriptions.value.filter(
+        sub => !(sub.targetType === 'CATEGORY' && sub.targetId === backendCategoryId.value),
+      )
+      followMessage.value = 'Đã hủy theo dõi chủ đề.'
+    } else {
+      const sub = await subscribeToTarget('CATEGORY', backendCategoryId.value)
+      subscriptions.value = [
+        sub,
+        ...subscriptions.value.filter(item => !(item.targetType === 'CATEGORY' && item.targetId === sub.targetId)),
+      ]
+      followMessage.value = 'Bạn sẽ nhận email khi chủ đề này có bài viết mới.'
+    }
+  } catch (err: any) {
+    followError.value = err?.response?.data?.message ?? 'Không thể cập nhật theo dõi chủ đề.'
+  } finally {
+    categoryFollowLoading.value = false
+  }
 }
 </script>

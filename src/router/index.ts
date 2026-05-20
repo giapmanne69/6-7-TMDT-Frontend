@@ -17,6 +17,7 @@ export const router = createRouter({
         { path: 'author/:id', component: () => import('@/views/AuthorProfile.vue') },
         { path: 'vip', component: () => import('@/views/VIPSubscription.vue') },
         { path: 'search', component: () => import('@/views/Search.vue') },
+        { path: 'subscriptions', component: () => import('@/views/Subscriptions.vue'), meta: { requiresAuth: true } },
       ],
     },
     {

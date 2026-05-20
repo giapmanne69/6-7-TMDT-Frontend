@@ -105,11 +105,11 @@ async function handleSubmit() {
   Object.assign(errors, { name: '', password: '', confirmation: '' })
   serverError.value = ''
 
-  if (!form.name || form.name.length < 2) {
-    errors.name = 'Họ tên phải có ít nhất 2 ký tự'
+  if (!form.name.trim()) {
+    errors.name = 'Vui lòng nhập họ tên'
   }
-  if (form.password.length < 8) {
-    errors.password = 'Mật khẩu phải có ít nhất 8 ký tự'
+  if (!form.password.trim()) {
+    errors.password = 'Vui lòng nhập mật khẩu'
   }
   if (form.password !== form.confirmation) {
     errors.confirmation = 'Mật khẩu xác nhận không khớp'

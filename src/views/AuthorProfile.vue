@@ -21,15 +21,27 @@
               <p class="text-blue-600 font-medium text-sm mb-2">{{ author.role }}</p>
             </div>
             <div class="flex gap-3 w-full md:w-auto">
-              <button class="flex-1 md:flex-none flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-6 py-2.5 font-semibold text-white transition-colors hover:bg-blue-700">
-                <UserPlus class="h-4 w-4" /> Theo dõi
+              <button
+                @click="toggleAuthorSubscription"
+                :disabled="followLoading"
+                :class="[
+                  'flex-1 md:flex-none flex items-center justify-center gap-2 rounded-lg px-6 py-2.5 font-semibold transition-colors disabled:opacity-60',
+                  isFollowing ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-blue-600 text-white hover:bg-blue-700'
+                ]"
+              >
+                <Loader2 v-if="followLoading" class="h-4 w-4 animate-spin" />
+                <UserCheck v-else-if="isFollowing" class="h-4 w-4" />
+                <UserPlus v-else class="h-4 w-4" />
+                {{ isFollowing ? 'Đã theo dõi' : 'Theo dõi' }}
               </button>
-              <button class="flex items-center justify-center rounded-lg border border-gray-200 bg-white p-2.5 text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900">
+              <RouterLink to="/subscriptions" class="flex items-center justify-center rounded-lg border border-gray-200 bg-white p-2.5 text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900">
                 <Mail class="h-5 w-5" />
-              </button>
+              </RouterLink>
             </div>
           </div>
         </div>
+        <p v-if="followMessage" class="mb-4 rounded-lg bg-green-50 px-4 py-2 text-sm font-medium text-green-700">{{ followMessage }}</p>
+        <p v-if="followError" class="mb-4 rounded-lg bg-red-50 px-4 py-2 text-sm font-medium text-red-700">{{ followError }}</p>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-8 pt-6 border-t border-gray-100">
           <div class="md:col-span-2">
@@ -72,14 +84,96 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useRoute } from 'vue-router'
-import { UserPlus, Users, Calendar, Mail } from 'lucide-vue-next'
+import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { UserPlus, UserCheck, Users, Calendar, Mail, Loader2 } from 'lucide-vue-next'
 import { authors, articles } from '@/app/lib/mock-data'
 import ArticleCard from '@/components/ArticleCard.vue'
+import { useAuthStore } from '@/stores/auth'
+import {
+  getMySubscriptions,
+  subscribeToTarget,
+  unsubscribeFromTarget,
+  type SubscriptionResponse,
+} from '@/api/usecaseFeatures'
+import { canUseBackendId, getBackendAuthorId } from '@/utils/backendIds'
 
 const route = useRoute()
+const router = useRouter()
+const auth = useAuthStore()
 const id = computed(() => route.params.id as string)
 const author = computed(() => authors.find(a => a.id === id.value) ?? authors[0])
 const authorArticles = computed(() => articles.filter(a => a.authorId === id.value))
+const backendAuthorId = computed(() => getBackendAuthorId(id.value))
+
+const subscriptions = ref<SubscriptionResponse[]>([])
+const followLoading = ref(false)
+const followMessage = ref('')
+const followError = ref('')
+
+const isFollowing = computed(() =>
+  subscriptions.value.some(sub => sub.targetType === 'AUTHOR' && sub.targetId === backendAuthorId.value),
+)
+
+watch(id, () => {
+  followMessage.value = ''
+  followError.value = ''
+  loadSubscriptions()
+}, { immediate: true })
+
+async function loadSubscriptions() {
+  if (!auth.isLoggedIn || !auth.isVip) {
+    subscriptions.value = []
+    return
+  }
+  try {
+    subscriptions.value = await getMySubscriptions()
+  } catch {
+    subscriptions.value = []
+  }
+}
+
+function requireVipFeature() {
+  followMessage.value = ''
+  followError.value = ''
+  if (!auth.isLoggedIn) {
+    router.push({ path: '/login', query: { redirect: route.fullPath } })
+    return false
+  }
+  if (!auth.isVip) {
+    router.push('/vip')
+    return false
+  }
+  return true
+}
+
+async function toggleAuthorSubscription() {
+  if (!requireVipFeature()) return
+  if (!canUseBackendId(backendAuthorId.value)) {
+    followError.value = 'Chưa xác định được ID tác giả trong backend.'
+    return
+  }
+
+  followLoading.value = true
+  try {
+    if (isFollowing.value) {
+      await unsubscribeFromTarget('AUTHOR', backendAuthorId.value)
+      subscriptions.value = subscriptions.value.filter(
+        sub => !(sub.targetType === 'AUTHOR' && sub.targetId === backendAuthorId.value),
+      )
+      followMessage.value = 'Đã hủy theo dõi tác giả.'
+    } else {
+      const sub = await subscribeToTarget('AUTHOR', backendAuthorId.value)
+      subscriptions.value = [
+        sub,
+        ...subscriptions.value.filter(item => !(item.targetType === 'AUTHOR' && item.targetId === sub.targetId)),
+      ]
+      followMessage.value = 'Bạn sẽ nhận email khi tác giả này có bài viết mới.'
+    }
+  } catch (err: any) {
+    followError.value = err?.response?.data?.message ?? 'Không thể cập nhật theo dõi tác giả.'
+  } finally {
+    followLoading.value = false
+  }
+}
 </script>

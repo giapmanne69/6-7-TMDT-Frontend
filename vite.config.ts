@@ -4,6 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
+  cacheDir: process.env.VITE_CACHE_DIR ?? 'node_modules/.vite',
   plugins: [
     vue(),
     tailwindcss(),

@@ -16,7 +16,10 @@ export const useAuthStore = defineStore('auth', () => {
   const isAdmin = computed(() => role.value === 'ADMIN')
 
   async function login(email: string, password: string) {
-    const res = await api.post('/api/auth/login', { email, password })
+    const res = await api.post('/api/auth/login', {
+      email: email.trim(),
+      password: password.trim(),
+    })
     const data = res.data
     token.value = data.jwtToken
     userName.value = data.name
@@ -37,7 +40,13 @@ export const useAuthStore = defineStore('auth', () => {
     password: string
     confirmation: string
   }) {
-    await api.post('/api/auth/register', payload)
+    await api.post('/api/auth/register', {
+      ...payload,
+      email: payload.email.trim(),
+      name: payload.name.trim(),
+      password: payload.password.trim(),
+      confirmation: payload.confirmation.trim(),
+    })
   }
 
   function logout() {

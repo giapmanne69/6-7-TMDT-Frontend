@@ -8,6 +8,16 @@
             <span class="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-800 uppercase tracking-wider">
               {{ article.category }}
             </span>
+            <button
+              @click="handleCategorySubscription"
+              :disabled="categoryLoading"
+              class="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-50 disabled:opacity-60"
+            >
+              <Loader2 v-if="categoryLoading" class="h-3 w-3 animate-spin" />
+              <BellRing v-else-if="isCategoryFollowing" class="h-3 w-3" />
+              <BellPlus v-else class="h-3 w-3" />
+              {{ isCategoryFollowing ? 'Đã theo dõi chủ đề' : 'Theo dõi chủ đề' }}
+            </button>
             <span v-if="article.isVip" class="flex items-center gap-1 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
               <Crown class="h-3 w-3" /> VIP
             </span>
@@ -29,11 +39,19 @@
               <button class="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
                 <Sparkles class="h-4 w-4 text-purple-500" /> Tóm tắt AI
               </button>
-              <button class="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
-                <Download class="h-4 w-4" /> Tải PDF
+              <button
+                @click="handleDownloadPdf"
+                :disabled="pdfLoading"
+                class="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-60"
+              >
+                <Loader2 v-if="pdfLoading" class="h-4 w-4 animate-spin" />
+                <Download v-else class="h-4 w-4" />
+                {{ pdfLoading ? 'Đang tạo PDF...' : 'Tải PDF' }}
               </button>
             </div>
           </div>
+          <p v-if="actionMessage" class="mt-3 rounded-lg bg-green-50 px-4 py-2 text-sm font-medium text-green-700">{{ actionMessage }}</p>
+          <p v-if="actionError" class="mt-3 rounded-lg bg-red-50 px-4 py-2 text-sm font-medium text-red-700">{{ actionError }}</p>
         </header>
 
         <div class="mb-10 aspect-video w-full overflow-hidden rounded-xl bg-gray-100">
@@ -130,13 +148,33 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useRoute } from 'vue-router'
-import { Calendar, User, Crown, Download, Sparkles, MessageSquare, Send } from 'lucide-vue-next'
+import { ref, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import {
+  Calendar,
+  User,
+  Crown,
+  Download,
+  Sparkles,
+  MessageSquare,
+  Send,
+  BellPlus,
+  BellRing,
+  Loader2,
+} from 'lucide-vue-next'
 import { articles, comments as initialComments, authors } from '@/app/lib/mock-data'
 import { useAuthStore } from '@/stores/auth'
+import {
+  downloadArticlePdf,
+  getMySubscriptions,
+  subscribeToTarget,
+  unsubscribeFromTarget,
+  type SubscriptionResponse,
+} from '@/api/usecaseFeatures'
+import { canUseBackendId, getBackendCategoryId } from '@/utils/backendIds'
 
 const route = useRoute()
+const router = useRouter()
 const auth = useAuthStore()
 
 const id = computed(() => route.params.id as string)
@@ -144,10 +182,26 @@ const article = computed(() => articles.find(a => a.id === id.value) ?? articles
 const author = computed(() => authors.find(a => a.id === article.value.authorId))
 const relatedArticles = computed(() => articles.filter(a => a.id !== id.value).slice(0, 4))
 const showVipOverlay = computed(() => article.value.isVip && !auth.isVip)
+const backendCategoryId = computed(() => getBackendCategoryId(article.value.category))
 
 const commentText = ref('')
 const commentError = ref('')
 const comments = ref([...initialComments])
+const subscriptions = ref<SubscriptionResponse[]>([])
+const pdfLoading = ref(false)
+const categoryLoading = ref(false)
+const actionMessage = ref('')
+const actionError = ref('')
+
+const isCategoryFollowing = computed(() =>
+  subscriptions.value.some(sub => sub.targetType === 'CATEGORY' && sub.targetId === backendCategoryId.value),
+)
+
+watch(id, () => {
+  actionMessage.value = ''
+  actionError.value = ''
+  loadSubscriptions()
+}, { immediate: true })
 
 function handleCommentSubmit() {
   if (commentText.value.trim().length < 5) {
@@ -167,5 +221,82 @@ function handleCommentSubmit() {
     time: 'Vừa xong',
   })
   commentText.value = ''
+}
+
+async function loadSubscriptions() {
+  if (!auth.isLoggedIn || !auth.isVip) {
+    subscriptions.value = []
+    return
+  }
+  try {
+    subscriptions.value = await getMySubscriptions()
+  } catch {
+    subscriptions.value = []
+  }
+}
+
+function requireVipFeature() {
+  actionMessage.value = ''
+  actionError.value = ''
+  if (!auth.isLoggedIn) {
+    router.push({ path: '/login', query: { redirect: route.fullPath } })
+    return false
+  }
+  if (!auth.isVip) {
+    router.push('/vip')
+    return false
+  }
+  return true
+}
+
+async function handleDownloadPdf() {
+  if (!requireVipFeature()) return
+  pdfLoading.value = true
+  try {
+    const { blob, fileName } = await downloadArticlePdf(article.value.id)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = fileName
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+    actionMessage.value = 'File PDF đã được tạo và bắt đầu tải xuống.'
+  } catch (err: any) {
+    actionError.value = err?.response?.data?.message ?? 'Không thể tạo file PDF. Vui lòng thử lại.'
+  } finally {
+    pdfLoading.value = false
+  }
+}
+
+async function handleCategorySubscription() {
+  if (!requireVipFeature()) return
+  if (!canUseBackendId(backendCategoryId.value)) {
+    actionError.value = 'Chưa xác định được ID chủ đề trong backend.'
+    return
+  }
+
+  categoryLoading.value = true
+  try {
+    if (isCategoryFollowing.value) {
+      await unsubscribeFromTarget('CATEGORY', backendCategoryId.value)
+      subscriptions.value = subscriptions.value.filter(
+        sub => !(sub.targetType === 'CATEGORY' && sub.targetId === backendCategoryId.value),
+      )
+      actionMessage.value = 'Đã hủy theo dõi chủ đề.'
+    } else {
+      const sub = await subscribeToTarget('CATEGORY', backendCategoryId.value)
+      subscriptions.value = [
+        sub,
+        ...subscriptions.value.filter(item => !(item.targetType === 'CATEGORY' && item.targetId === sub.targetId)),
+      ]
+      actionMessage.value = 'Bạn sẽ nhận email khi chủ đề này có bài viết mới.'
+    }
+  } catch (err: any) {
+    actionError.value = err?.response?.data?.message ?? 'Không thể cập nhật theo dõi chủ đề.'
+  } finally {
+    categoryLoading.value = false
+  }
 }
 </script>
