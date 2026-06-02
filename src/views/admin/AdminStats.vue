@@ -293,7 +293,7 @@ import {
 import { DollarSign, Eye, FileText } from 'lucide-vue-next'
 import { fetchCategories, type CategoryOption } from '@/api/staff'
 import {
-  fetchAdminAuthorOptions,
+  fetchAdminStatAuthors,
   fetchAdminOverviewStats,
   fetchAdminTopStats,
   type AdminOverviewStatDto,
@@ -452,7 +452,7 @@ async function loadOptions() {
   error.value = ''
   try {
     const [authors, categories] = await Promise.all([
-      fetchAdminAuthorOptions(),
+      fetchAdminStatAuthors(),
       fetchCategories(),
     ])
 
